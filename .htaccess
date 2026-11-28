@@ -1,0 +1,48 @@
+<IfModule mod_negotiation.c>
+    Options -MultiViews -Indexes
+</IfModule>
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Block access to hidden dotfiles and directories (.env, .git, etc.)
+    RewriteRule (^|/)\. - [F,L]
+
+    # Block direct external access to internal directories and sensitive root files
+    RewriteCond %{ENV:REDIRECT_STATUS} ^$
+    RewriteRule ^(backend|database|deploy|docs|scripts|Tasks|frontend)(/|$) - [F,L]
+
+    RewriteCond %{ENV:REDIRECT_STATUS} ^$
+    RewriteRule ^(composer\.(json|lock)|package(-lock)?\.json|.*\.sql|.*\.log|.*\.md|.*\.ps1|.*\.bat|.*\.sh|.*\.example)$ - [F,L]
+
+    # Handle Authorization and X-XSRF-Token headers for Laravel Sanctum
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+    RewriteCond %{HTTP:x-xsrf-token} .
+    RewriteRule .* - [E=HTTP_X_XSRF_TOKEN:%{HTTP:X-XSRF-Token}]
+
+    # Redirect trailing slashes if not a directory
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteCond %{REQUEST_URI} (.+)/$
+    RewriteRule ^ %1 [L,R=301]
+
+    # Route Laravel backend endpoints directly to root index.php
+    RewriteRule ^(api|sanctum)(/|$) index.php [L]
+    RewriteRule ^up$ index.php [L]
+
+    # Serve local public storage files when storage:link exists
+    RewriteCond %{DOCUMENT_ROOT}/backend/public/storage/$1 -f
+    RewriteRule ^storage/(.+)$ backend/public/storage/$1 [L]
+
+    # Serve built React static assets from frontend/dist when present
+    RewriteCond %{REQUEST_URI} !^/frontend/dist/
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{DOCUMENT_ROOT}/frontend/dist/$1 -f
+    RewriteRule ^(.+)$ frontend/dist/$1 [L]
+
+    # Send all remaining requests (React SPA routes) to root index.php
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^ index.php [L]
+</IfModule>

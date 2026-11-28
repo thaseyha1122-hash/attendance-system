@@ -1,0 +1,86 @@
+﻿Hostinger backend deploy
+========================
+
+A) BUILD ZIP ON YOUR PC (Windows)
+---------------------------------
+  Double-click:  Upload to Hostinger.bat
+  Or PowerShell:
+    cd C:\xampp\htdocs\Attadance
+    .\deploy-hostinger.ps1 -OpenFolder
+
+  Output: deploy\backend-hostinger-YYYYMMDD-HHMM.zip
+
+B) UPLOAD (hPanel)
+------------------
+  File Manager -> domains/lightgoldenrodyellow-mantis-338653.hostingersite.com/public_html
+  Upload zip -> Extract
+  Must see: .env  backend/  deploy/
+
+  Keep existing .env if it already works — merge new lines from deploy/.env.hostinger
+
+C) WEB ENTRY (pick one)
+-----------------------
+  Option 1 — hPanel Document root:
+    public_html/backend/public
+
+  Option 2 — SSH (if document root cannot change):
+    cd ~/domains/lightgoldenrodyellow-mantis-338653.hostingersite.com/public_html
+    mv index.html index.html.bak 2>/dev/null || true
+    cp deploy/public_html.index.php index.php
+    cp deploy/public_html.htaccess .htaccess
+
+D) SSH — copy all commands
+----------------------------
+  ssh -p 65002 u623004828@151.106.116.77
+
+  cd ~/domains/lightgoldenrodyellow-mantis-338653.hostingersite.com/public_html
+
+  # .env one level above backend/ (edit R2, DB, APP_KEY)
+  cp deploy/.env.hostinger .env
+  nano .env
+
+  cd backend
+  composer install --no-dev --optimize-autoloader
+  php artisan storage:link
+
+  # Safe migrate (do NOT full migrate if DB already exists)
+  php artisan migrate --path=database/migrations/2026_05_20_000001_add_telegram_chat_id_to_employees_table.php --force
+  php artisan config:clear
+  php artisan config:cache
+  php artisan route:cache
+
+  chmod -R 775 storage bootstrap/cache
+
+E) IMAGES (R2 TLS fails on Hostinger — use server disk)
+------------------------------------------------------
+  In public_html/.env set:
+    ATTENDANCE_IMAGES_DISK=public
+
+  Then:
+    php artisan config:clear
+    php artisan storage:link
+    php artisan config:cache
+
+  Images URL: https://lightgoldenrodyellow-mantis-338653.hostingersite.com/storage/...
+
+  When Hostinger fixes TLS to Cloudflare, set ATTENDANCE_IMAGES_DISK=r2 and test:
+    php artisan r2:test --image
+
+F) VERCEL
+-----------
+  VITE_API_URL=https://lightgoldenrodyellow-mantis-338653.hostingersite.com/api
+  Redeploy after changing env.
+
+G) TEST
+-------
+  curl -sS -w "\nHTTP:%{http_code}\n" "https://lightgoldenrodyellow-mantis-338653.hostingersite.com/up"
+
+  curl -sS -X POST "https://lightgoldenrodyellow-mantis-338653.hostingersite.com/api/auth/login" \
+    -H "Content-Type: application/json" -H "Accept: application/json" \
+    -d '{"username":"superadmin@shadow.com","password":"SuperAdmin@123"}'
+
+  Login (works on production now):
+    admin@shadow.com / Admin@123
+
+  Super Admin (superadmin@shadow.com) — reset password via SSH if needed:
+    cd backend && php artisan tinker --execute="\\App\\Models\\User::where('email','superadmin@shadow.com')->update(['password'=>\\Illuminate\\Support\\Facades\\Hash::make('SuperAdmin@123')]);"

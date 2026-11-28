@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 480">
+  <path fill="#032ea1" d="M0 0h640v480H0z"/>
+  <path fill="#e00025" d="M0 120h640v240H0z"/>
+  <g fill="#fff" stroke="#000" stroke-width="1.3" stroke-linejoin="round">
+    <!-- Base steps of Angkor Wat -->
+    <path d="M156 333h328v11H156z"/>
+    <path d="M168 322h304v11H168z"/>
+    <path d="M180 311h280v11H180z"/>
+    <!-- Main gallery wall -->
+    <path d="M192 276h256v35H192z"/>
+    <!-- Left Tower -->
+    <path d="M214 235h44v41h-44z"/>
+    <path d="M218 214h36l-4-17h-28z"/>
+    <path d="M224 197h24l-5-16h-14z"/>
+    <path d="M231 181h10l-5-20z"/>
+    <!-- Right Tower -->
+    <path d="M382 235h44v41h-44z"/>
+    <path d="M386 214h36l-4-17h-28z"/>
+    <path d="M392 197h24l-5-16h-14z"/>
+    <path d="M399 181h10l-5-20z"/>
+    <!-- Center Main Tower -->
+    <path d="M292 218h56v58h-56z"/>
+    <path d="M297 195h46l-5-20h-36z"/>
+    <path d="M304 175h32l-6-19h-20z"/>
+    <path d="M312 156h16l-8-26z"/>
+    <!-- Connecting Roofs & Pillars -->
+    <path d="M258 258h34v18h-34zM348 258h34v18h-34z"/>
+    <!-- Doorways & Windows -->
+    <g fill="#e00025" stroke="none">
+      <path d="M204 285h10v26h-10zm24 0h10v26h-10zm24 0h10v26h-10zm24 0h10v26h-10zm36-6h16v32h-16zm32 6h10v26h-10zm24 0h10v26h-10zm24 0h10v26h-10zm24 0h10v26h-10z"/>
+      <path d="M231 247h10v22h-10zm84-10h10v30h-10zm84 10h10v22h-10z"/>
+    </g>
+    <!-- Staircases -->
+    <path d="M226 311h20v33h-20zm82-6h24v39h-24zm86 6h20v33h-20z"/>
+  </g>
+</svg>

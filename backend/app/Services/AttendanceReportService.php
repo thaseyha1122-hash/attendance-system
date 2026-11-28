@@ -1,0 +1,253 @@
+<?php
+
+namespace App\Services;
+
+use App\Models\Attendance;
+use App\Models\PermissionRequest;
+use App\Services\ImageUploadService;
+use Carbon\Carbon;
+use Illuminate\Support\Collection;
+
+class AttendanceReportService
+{
+    public function gpsStatus(Attendance $row): string
+    {
+        $in = $row->check_in_latitude !== null && $row->check_in_longitude !== null;
+        $out = $row->check_out_latitude !== null && $row->check_out_longitude !== null;
+
+        if ($in && $out) {
+            return 'verified';
+        }
+        if ($in || $out) {
+            return 'partial';
+        }
+
+        return 'unverified';
+    }
+
+    public function displayStatus(Attendance $row): string
+    {
+        if ($row->check_in_at && ! $row->check_out_at && $row->status !== 'absent') {
+            return 'missing_checkout';
+        }
+
+        if (($row->status ?? null) === 'late' || (int) ($row->late_minutes ?? 0) > 0) {
+            return 'late';
+        }
+
+        $requestStatus = $this->approvedRequestStatus($row);
+        if ($requestStatus) {
+            return $requestStatus;
+        }
+
+        return $row->status ?? 'present';
+    }
+
+    private function approvedRequestStatus(Attendance $row): ?string
+    {
+        if (! $row->employee_id || ! $row->attendance_date) {
+            return null;
+        }
+
+        $date = $row->attendance_date->toDateString();
+        $request = PermissionRequest::query()
+            ->where('employee_id', $row->employee_id)
+            ->where('status', 'approved')
+            ->whereIn('type', ['Early Check Out', 'Day Off', 'Missing Check In', 'Missing Check Out', 'Missing Attendance', 'Personal Leave'])
+            ->whereDate('request_date', '<=', $date)
+            ->where(function ($dateQuery) use ($date) {
+                $dateQuery
+                    ->whereDate('request_date_end', '>=', $date)
+                    ->orWhereNull('request_date_end');
+            })
+            ->orderByRaw("FIELD(type, 'Early Check Out', 'Day Off', 'Missing Check In', 'Missing Check Out', 'Missing Attendance', 'Personal Leave')")
+            ->first();
+
+        if ($request && in_array($request->type, ['Day Off', 'Personal Leave'], true) && $request->day_part === 'Half Day') {
+            return 'half_day';
+        }
+
+        return match ($request?->type) {
+            'Early Check Out' => 'early_checkout',
+            'Day Off' => 'day_off',
+            'Missing Check In' => 'missing_checkin',
+            'Missing Check Out' => 'missing_checkout',
+            'Missing Attendance' => 'missing_checkin',
+            'Personal Leave' => 'personal_request',
+            default => null,
+        };
+    }
+
+    public function locationLabel(Attendance $row): string
+    {
+        return $row->check_in_address
+            ?: $row->check_out_address
+            ?: ($row->check_in_latitude !== null
+                ? round((float) $row->check_in_latitude, 5).', '.round((float) $row->check_in_longitude, 5)
+                : '—');
+    }
+
+    public function buildTimeline(Attendance $row): array
+    {
+        $events = [];
+
+        if ($row->check_in_at) {
+            $lateNote = $row->late_minutes > 0
+                ? 'Late by '.$row->late_minutes.' min'
+                : null;
+            $events[] = [
+                'key' => 'check_in',
+                'label' => $row->type === 'outdoor' ? 'Outdoor Check In' : 'Morning Check In',
+                'time' => $row->check_in_at->format('h:i A'),
+                'iso' => $row->check_in_at->toIso8601String(),
+                'tone' => $row->late_minutes > 0 ? 'orange' : 'green',
+                'note' => $lateNote,
+            ];
+        }
+
+        if ($row->check_out_at) {
+            $events[] = [
+                'key' => 'check_out',
+                'label' => $row->type === 'outdoor' ? 'Outdoor Check Out' : 'Work Check Out',
+                'time' => $row->check_out_at->format('h:i A'),
+                'iso' => $row->check_out_at->toIso8601String(),
+                'tone' => 'green',
+                'note' => null,
+            ];
+        } elseif ($row->check_in_at && $row->status !== 'absent') {
+            $events[] = [
+                'key' => 'missing_out',
+                'label' => 'Check Out',
+                'time' => '—',
+                'iso' => null,
+                'tone' => 'red',
+                'note' => 'Missing check out',
+            ];
+        }
+
+        return $events;
+    }
+
+    public function formatRecord(Attendance $row): array
+    {
+        $employee = $row->employee;
+        $displayStatus = $this->displayStatus($row);
+        $imageService = app(ImageUploadService::class);
+        $checkInPhotoUrl = $row->check_in_photo_path ? $imageService->url($row->check_in_photo_path) : null;
+        $checkOutPhotoUrl = $row->check_out_photo_path ? $imageService->url($row->check_out_photo_path) : null;
+
+        return [
+            'id' => $row->id,
+            'employee_id' => $row->employee_id,
+            'employee_code' => $employee?->employee_code,
+            'employee_name' => $employee ? trim("{$employee->first_name} {$employee->last_name}") : '—',
+            'department' => $employee?->department?->name,
+            'department_id' => $employee?->department_id,
+            'branch' => $employee?->branch?->name ?? $row->branch?->name,
+            'branch_id' => $employee?->branch_id ?? $row->branch_id,
+            'position' => $employee?->position?->name,
+            'attendance_date' => $row->attendance_date?->toDateString(),
+            'check_in' => $row->check_in_at?->format('H:i'),
+            'check_out' => $row->check_out_at?->format('H:i'),
+            'check_in_at' => $row->check_in_at?->toIso8601String(),
+            'check_out_at' => $row->check_out_at?->toIso8601String(),
+            'work_minutes' => $row->work_minutes,
+            'late_minutes' => $row->late_minutes,
+            'deduction_amount' => $row->deduction_amount,
+            'deduction_reason' => $row->deduction_reason,
+            'status' => $row->status,
+            'display_status' => $displayStatus,
+            'type' => $row->type,
+            'gps_status' => $this->gpsStatus($row),
+            'location' => $this->locationLabel($row),
+            'check_in_address' => $row->check_in_address,
+            'check_out_address' => $row->check_out_address,
+            'photo_url' => $checkInPhotoUrl,
+            'check_in_photo_url' => $checkInPhotoUrl,
+            'check_out_photo_url' => $checkOutPhotoUrl,
+            'check_in_latitude' => $row->check_in_latitude,
+            'check_in_longitude' => $row->check_in_longitude,
+            'check_out_latitude' => $row->check_out_latitude,
+            'check_out_longitude' => $row->check_out_longitude,
+            'notes' => $row->notes,
+            'timeline' => $this->buildTimeline($row),
+            'employee' => $employee,
+            'branch' => $row->branch,
+        ];
+    }
+
+    public function summaryForCollection(Collection $records): array
+    {
+        $displayStatuses = $records->map(fn ($row) => $this->displayStatus($row));
+        $present = $displayStatuses->filter(fn ($status) => $status === 'present')->count();
+        $late = $displayStatuses->filter(fn ($status) => $status === 'late')->count();
+        $absent = $displayStatuses->filter(fn ($status) => $status === 'absent')->count();
+        $earlyCheckout = $displayStatuses->filter(fn ($status) => $status === 'early_checkout')->count();
+        $dayOff = $displayStatuses->filter(fn ($status) => $status === 'day_off')->count();
+        $personalRequest = $displayStatuses
+            ->filter(fn ($status) => in_array($status, ['personal_request', 'on_leave', 'leave'], true))
+            ->count();
+        $halfDay = $displayStatuses->filter(fn ($status) => $status === 'half_day')->count();
+        $missingCheckin = $displayStatuses
+            ->filter(fn ($status) => in_array($status, ['missing_checkin', 'missing_attendance'], true))
+            ->count();
+        $missingCheckout = $displayStatuses
+            ->filter(fn ($status) => $status === 'missing_checkout')
+            ->count();
+        $outdoor = $records->where('type', 'outdoor')->count();
+        $totalWork = (int) $records->sum('work_minutes');
+        $overtimeMinutes = max(0, $totalWork - ($records->count() * 8 * 60));
+
+        return [
+            'total_records' => $records->count(),
+            'present' => $present,
+            'late' => $late,
+            'absent' => $absent,
+            'early_checkout' => $earlyCheckout,
+            'day_off' => $dayOff,
+            'personal_request' => $personalRequest,
+            'on_leave' => $personalRequest,
+            'half_day' => $halfDay,
+            'missing_checkin' => $missingCheckin,
+            'missing_checkout' => $missingCheckout,
+            'missing_attendance' => $missingCheckin,
+            'outdoor' => $outdoor,
+            'total_work_minutes' => $totalWork,
+            'total_late_minutes' => (int) $records->sum('late_minutes'),
+            'total_deduction' => round((float) $records->sum('deduction_amount'), 2),
+            'overtime_minutes' => $overtimeMinutes,
+            'bonus_eligible' => $absent === 0 && $late === 0 && $present > 0,
+        ];
+    }
+
+    public function todayStats(): array
+    {
+        $today = Carbon::today()->toDateString();
+        $rows = Attendance::with(['employee'])
+            ->whereDate('attendance_date', $today)
+            ->get();
+
+        $total = max(1, $rows->count());
+        $summary = $this->summaryForCollection($rows);
+
+        return [
+            'present_today' => $summary['present'] + $summary['late'],
+            'late_today' => $summary['late'],
+            'absent_today' => $summary['absent'],
+            'missing_checkout' => $summary['missing_checkout'],
+            'outdoor_today' => $summary['outdoor'],
+            'total_working_hours' => $this->formatMinutes($summary['total_work_minutes']),
+            'present_pct' => round((($summary['present'] + $summary['late']) / $total) * 100, 1),
+            'late_pct' => round(($summary['late'] / $total) * 100, 1),
+            'absent_pct' => round(($summary['absent'] / $total) * 100, 1),
+        ];
+    }
+
+    public function formatMinutes(int $minutes): string
+    {
+        $h = intdiv($minutes, 60);
+        $m = $minutes % 60;
+
+        return sprintf('%dh %02dm', $h, $m);
+    }
+}
